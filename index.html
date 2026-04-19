@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SQL Forge — Format, Minify & Beautify SQL</title>
+<meta name="description" content="Free SQL formatter, minifier and beautifier. Runs entirely in your browser. Zero tracking. Supports standard SQL, MySQL, PostgreSQL.">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0d1117;--bg2:#161b22;--bg3:#21262d;--border:#30363d;--text:#e6edf3;--text2:#8b949e;--accent:#58a6ff;--green:#3fb950;--orange:#d29922;--red:#f85149;--kw:#ff7b72;--str:#a5d6ff;--num:#79c0ff;--comment:#8b949e;--ident:#e6edf3}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+header{padding:16px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.logo{font-size:20px;font-weight:700;color:var(--accent)}
+.logo span{color:var(--text2);font-weight:400;font-size:14px}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+button,.btn{padding:7px 14px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);color:var(--text);cursor:pointer;font-size:13px;transition:all .15s}
+button:hover,.btn:hover{background:var(--accent);color:#000;border-color:var(--accent)}
+button.primary{background:#238636;border-color:#238636;color:#fff}
+button.primary:hover{background:#2ea043}
+.main{display:grid;grid-template-columns:1fr 1fr;gap:0;height:calc(100vh - 110px)}
+.panel{display:flex;flex-direction:column;border-right:1px solid var(--border)}
+.panel:last-child{border-right:none}
+.panel-head{padding:8px 16px;background:var(--bg2);border-bottom:1px solid var(--border);font-size:12px;color:var(--text2);display:flex;justify-content:space-between;align-items:center}
+textarea{flex:1;background:var(--bg);color:var(--text);border:none;padding:16px;font-family:'SF Mono',Monaco,'Cascadia Code',monospace;font-size:13px;line-height:1.6;resize:none;outline:none;tab-size:2}
+textarea::placeholder{color:var(--text2)}
+.output{flex:1;overflow:auto;padding:16px;font-family:'SF Mono',Monaco,'Cascadia Code',monospace;font-size:13px;line-height:1.6;white-space:pre;cursor:text;user-select:all}
+.toolbar{padding:8px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center;background:var(--bg2)}
+.toolbar label{font-size:12px;color:var(--text2);display:flex;align-items:center;gap:4px}
+.toolbar select,.toolbar input[type=number]{padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:12px}
+.stats{padding:6px 16px;border-top:1px solid var(--border);font-size:11px;color:var(--text2);display:flex;gap:16px;background:var(--bg2)}
+.samples{display:flex;gap:6px;flex-wrap:wrap}
+.samples button{font-size:11px;padding:3px 8px}
+.kw{color:var(--kw)}.str{color:var(--str)}.num{color:var(--num)}.cmt{color:var(--comment);font-style:italic}
+@media(max-width:768px){.main{grid-template-columns:1fr;grid-template-rows:1fr 1fr}.panel{border-right:none;border-bottom:1px solid var(--border)}}
+</style>
+</head>
+<body>
+<header>
+<div class="logo">SQL Forge <span>— Format, Minify & Beautify SQL</span></div>
+<div class="actions">
+<button onclick="copyOutput()">📋 Copy</button>
+<button onclick="downloadSQL()">⬇ Download .sql</button>
+<button onclick="shareURL()">🔗 Share</button>
+<div class="samples">
+<button onclick="loadSample('simple')">Simple</button>
+<button onclick="loadSample('join')">Multi-JOIN</button>
+<button onclick="loadSample('sub')">Subquery</button>
+<button onclick="loadSample('cte')">CTE</button>
+<button onclick="loadSample('window')">Window</button>
+</div>
+</div>
+</header>
+<div class="toolbar">
+<label>Dialect: <select id="dialect"><option value="sql">Standard SQL</option><option value="mysql">MySQL</option><option value="pg">PostgreSQL</option></select></label>
+<label>Keywords: <select id="keywordCase"><option value="upper">UPPERCASE</option><option value="lower">lowercase</option><option value="original">Original</option></select></label>
+<label>Indent: <input type="number" id="indentSize" value="4" min="1" max="8" style="width:50px"></label>
+<label>Line width: <input type="number" id="lineWidth" value="80" min="40" max="200" style="width:60px"></label>
+<button class="primary" onclick="formatSQL()">✨ Format</button>
+<button onclick="minifySQL()">📦 Minify</button>
+</div>
+<div class="main">
+<div class="panel">
+<div class="panel-head">Input SQL <span id="inputInfo"></span></div>
+<textarea id="input" placeholder="Paste your SQL here..." spellcheck="false"></textarea>
+</div>
+<div class="panel">
+<div class="panel-head">Output <span id="outputInfo"></span></div>
+<div class="output" id="output">Formatted SQL will appear here...</div>
+</div>
+</div>
+<div class="stats">
+<span id="statLines">Lines: 0</span>
+<span id="statChars">Chars: 0</span>
+<span id="statKeywords">Keywords: 0</span>
+<span id="statTables">Tables: ~0</span>
+</div>
+<script>
+const MAJOR={SELECT:1,FROM:1,WHERE:1,'GROUP BY':1,HAVING:1,'ORDER BY':1,LIMIT:1,OFFSET:1,UNION:1,INTERSECT:1,EXCEPT:1,INSERT:1,UPDATE:1,DELETE:1,CREATE:1,ALTER:1,DROP:1,WITH:1,SET:1,VALUES:1,INTO:1};
+const COMPOUND={'GROUP BY':1,'ORDER BY':1,'LEFT JOIN':1,'RIGHT JOIN':1,'INNER JOIN':1,'OUTER JOIN':1,'CROSS JOIN':1,'FULL JOIN':1,'FULL OUTER JOIN':1,'LEFT OUTER JOIN':1,'RIGHT OUTER JOIN':1,'NOT IN':1,'NOT LIKE':1,'IS NOT':1,'NOT NULL':1};
+const MINOR={AND:1,OR:1,ON:1,JOIN:1,WHEN:1,THEN:1,ELSE:1,END:1,AS:1,CASE:1,BETWEEN:1,LIKE:1,IN:1,NOT:1,EXISTS:1,ALL:1,ANY:1,SOME:1};
+const ALL_KW=new Set();
+Object.keys(MAJOR).forEach(k=>ALL_KW.add(k));
+Object.keys(MINOR).forEach(k=>ALL_KW.add(k));
+Object.keys(COMPOUND).forEach(k=>ALL_KW.add(k));
+'CREATE,TABLE,INDEX,VIEW,DATABASE,SCHEMA,DISTINCT,DROP,ALTER,ADD,COLUMN,CONSTRAINT,PRIMARY,FOREIGN,KEY,REFERENCES,CHECK,DEFAULT,AUTO_INCREMENT,UNIQUE,NATURAL,USING,ASC,DESC,NULL,FETCH,NEXT,ROWS,ONLY,FOR,UPDATE,DELETE,INSERT,INTO,VALUES,TRUNCATE,EXPLAIN,ANALYZE,VACUUM,BEGIN,COMMIT,ROLLBACK,GRANT,REVOKE,IF,REPLACE,PROCEDURE,FUNCTION,TRIGGER,CURSOR,RETURN,DECLARE,CURSOR,OVER,PARTITION,BY,ROW_NUMBER,RANK,DENSE_RANK,LAG,LEAD,FIRST_VALUE,LAST_VALUE,SUM,COUNT,AVG,MIN,MAX,COALESCE,NULLIF,CAST,CONVERT,EXTRACT,DATE_PART,NOW,CURRENT_TIMESTAMP,CURRENT_DATE,CURRENT_TIME,TRUE,FALSE,RECURSIVE,TEMPORARY,TEMP,EXPLAIN,ANALYZE,LIMIT,OFFSET,RETURNING,CONFLICT,NOTHING,UPSERT,BOOLEAN,INTEGER,BIGINT,SMALLINT,NUMERIC,DECIMAL,REAL,DOUBLE,PRECISION,VARCHAR,CHAR,TEXT,BLOB,DATE,TIMESTAMP,INTERVAL,SERIAL,BIGSERIAL,UUID,JSON,JSONB,ARRAY,RETURNS,LANGUAGE,PLPGSQL,VOLATILE,STABLE,IMMUTABLE,STRICT,SECURITY,DEFINER,INVOKER'.split(',').forEach(k=>ALL_KW.add(k));
+
+function tokenize(sql){
+  const tokens=[];let i=0;const len=sql.length;
+  while(i<len){
+    if(/\s/.test(sql[i])){let s=i;while(i<len&&/\s/.test(sql[i]))i++;tokens.push({type:'ws',value:sql.slice(s,i)});continue}
+    if(sql[i]==='-'&&sql[i+1]==='-'){let s=i;while(i<len&&sql[i]!=='\n')i++;tokens.push({type:'comment',value:sql.slice(s,i)});continue}
+    if(sql[i]==='/'&&sql[i+1]==='*'){let s=i;i+=2;while(i<len&&!(sql[i-1]==='*'&&sql[i]==='/'))i++;i++;tokens.push({type:'comment',value:sql.slice(s,i)});continue}
+    if(sql[i]==="'"||sql[i]==='"'){let q=sql[i],s=i;i++;while(i<len&&sql[i]!==q){if(sql[i]==='\\')i++;i++}i++;tokens.push({type:'string',value:sql.slice(s,i)});continue}
+    if(sql[i]==='`'){let s=i;i++;while(i<len&&sql[i]!=='`')i++;i++;tokens.push({type:'ident',value:sql.slice(s,i)});continue}
+    if(/\d/.test(sql[i])||(sql[i]==='.'&&i+1<len&&/\d/.test(sql[i+1]))){let s=i;if(sql[i]==='0'&&(sql[i+1]==='x'||sql[i+1]==='X')){i+=2;while(i<len&&/[0-9a-fA-F]/.test(sql[i]))i++}else{while(i<len&&/[\d.]/.test(sql[i]))i++}tokens.push({type:'number',value:sql.slice(s,i)});continue}
+    if(/[a-zA-Z_]/.test(sql[i])){let s=i;while(i<len&&/[a-zA-Z0-9_]/.test(sql[i]))i++;tokens.push({type:'word',value:sql.slice(s,i)});continue}
+    if(sql[i]==='@'||sql[i]==='$'||sql[i]===':'){let s=i;i++;while(i<len&&/[a-zA-Z0-9_]/.test(sql[i]))i++;if(i>s+1)tokens.push({type:'param',value:sql.slice(s,i)});else tokens.push({type:'punct',value:sql[i-1]});continue}
+    tokens.push({type:'punct',value:sql[i]});i++;
+  }
+  return tokens;
+}
+
+function compoundPass(tokens){
+  const out=[];let i=0;
+  while(i<tokens.length){
+    if(tokens[i].type==='word'){
+      const up=tokens[i].value.toUpperCase();
+      let matched=false;
+      for(const cw of Object.keys(COMPOUND)){
+        const parts=cw.split(' ');
+        if(up===parts[0]){
+          let j=i+1,pi=1;
+          while(j<tokens.length&&pi<parts.length){
+            if(tokens[j].type==='ws'){j++;continue}
+            if(tokens[j].type==='word'&&tokens[j].value.toUpperCase()===parts[pi]){j++;pi++}else break;
+          }
+          if(pi===parts.length){out.push({type:'keyword',value:cw});i=j;matched=true;break}
+        }
+      }
+      if(!matched){
+        if(ALL_KW.has(up))tokens[i].type='keyword';
+        else tokens[i].type='ident';
+        out.push(tokens[i]);i++;
+      }
+    }else{out.push(tokens[i]);i++}
+  }
+  return out;
+}
+
+function formatSQL(){
+  const input=document.getElementById('input').value.trim();
+  if(!input){document.getElementById('output').textContent='Paste some SQL and click Format!';return}
+  const indent=parseInt(document.getElementById('indentSize').value)||4;
+  const kwCase=document.getElementById('keywordCase').value;
+  const ind=' '.repeat(indent);
+  const tokens=compoundPass(tokenize(input));
+  let lines=[''];let depth=0;let newlineAfter=false;let newlineBefore=false;
+  let inSelect=false;let inFrom=false;let selectDepth=0;let parenDepth=0;
+  let afterComma=false;let inCase=0;let caseDepth=[];
+
+  function kw(v){if(kwCase==='upper')return v.toUpperCase();if(kwCase==='lower')return v.toLowerCase();return v}
+  function cur(){return lines[lines.length-1]}
+  function add(s){lines[lines.length-1]+=s}
+  function newLine(){lines.push('')}
+
+  for(let t=0;t<tokens.length;t++){
+    const tok=tokens[t];
+    if(tok.type==='ws')continue;
+    if(tok.type==='comment'){add(tok.value+' ');continue}
+    const v=tok.type==='keyword'?kw(tok.value):tok.value;
+    const up=tok.type==='keyword'?tok.value.toUpperCase():tok.value.toUpperCase();
+
+    if(tok.type==='punct'&&tok.value==='('){parenDepth++;add(v);continue}
+    if(tok.type==='punct'&&tok.value===')'){
+      parenDepth--;
+      if(parenDepth<0)parenDepth=0;
+      add(v);continue;
+    }
+    if(tok.type==='punct'&&tok.value===','){
+      add(v);newLine();add(ind.repeat(depth));continue;
+    }
+    if(tok.type==='punct'&&tok.value==='.'){add(v);continue}
+    if(tok.type==='punct'&&(tok.value===';'||tok.value==='')){
+      add(v);if(t<tokens.length-1){depth=0;newLine();newLine()}continue;
+    }
+
+    if(tok.type==='keyword'){
+      if(up==='SELECT'){
+        if(cur().trim())newLine();
+        add(kw('SELECT')+' ');inSelect=true;selectDepth=depth;continue;
+      }
+      if(up==='FROM'){
+        inSelect=false;inFrom=true;newLine();add(ind.repeat(depth)+kw('FROM')+' ');continue;
+      }
+      if(up in MAJOR&&up!=='SELECT'){
+        inSelect=false;inFrom=false;
+        newLine();add(ind.repeat(depth)+v+' ');continue;
+      }
+      if(up==='JOIN'||up.endsWith(' JOIN')){
+        newLine();add(ind.repeat(depth)+v+' ');continue;
+      }
+      if(up==='ON'){
+        newLine();add(ind.repeat(depth+1)+kw('ON')+' ');continue;
+      }
+      if(up==='AND'||up==='OR'){
+        newLine();add(ind.repeat(depth+1)+v+' ');continue;
+      }
+      if(up==='CASE'){inCase++;caseDepth.push(depth);add(v+' ');continue}
+      if(up==='WHEN'||up==='ELSE'){
+        if(inCase>0){newLine();add(ind.repeat(caseDepth[caseDepth.length-1]+1)+v+' ')}
+        else add(v+' ');
+        continue;
+      }
+      if(up==='END'){
+        if(inCase>0){inCase--;const cd=caseDepth.pop()||0;newLine();add(ind.repeat(cd)+v+' ')}
+        else add(v+' ');
+        continue;
+      }
+      if(up==='THEN'){add(v+' ');continue}
+      add(v+' ');continue;
+    }
+    add(v+' ');
+  }
+
+  const result=lines.map(l=>l.trimEnd()).join('\n').replace(/\n{3,}/g,'\n\n').trim();
+  showOutput(result);
+  updateStats(result,tokens);
+}
+
+function minifySQL(){
+  const input=document.getElementById('input').value.trim();
+  if(!input)return;
+  const tokens=compoundPass(tokenize(input));
+  const kwCase=document.getElementById('keywordCase').value;
+  let result='';
+  for(const t of tokens){
+    if(t.type==='ws'){result+=' ';continue}
+    if(t.type==='comment')continue;
+    if(t.type==='keyword'){
+      if(kwCase==='upper')result+=t.value.toUpperCase()+' ';
+      else if(kwCase==='lower')result+=t.value.toLowerCase()+' ';
+      else result+=t.value+' ';
+    }else result+=t.value;
+  }
+  result=result.replace(/\s+/g,' ').trim();
+  showOutput(result);
+  updateStats(result,tokens);
+}
+
+function showOutput(sql){
+  const out=document.getElementById('output');
+  const tokens=compoundPass(tokenize(sql));
+  let html='';
+  for(const t of tokens){
+    const esc=t.value.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    if(t.type==='keyword')html+=`<span class="kw">${esc}</span>`;
+    else if(t.type==='string')html+=`<span class="str">${esc}</span>`;
+    else if(t.type==='number')html+=`<span class="num">${esc}</span>`;
+    else if(t.type==='comment')html+=`<span class="cmt">${esc}</span>`;
+    else if(t.type==='ws'){
+      if(t.value.includes('\n'))html+=t.value.replace(/\n/g,'<br>').replace(/ /g,'&nbsp;');
+      else html+='&nbsp;';
+    }
+    else html+=esc;
+  }
+  out.innerHTML=html;
+}
+
+function updateStats(sql,tokens){
+  const lines=sql.split('\n').length;
+  const chars=sql.length;
+  const kwCount=tokens.filter(t=>t.type==='keyword').length;
+  const tables=sql.match(/\bFROM\b|\bJOIN\b/gi);
+  document.getElementById('statLines').textContent='Lines: '+lines;
+  document.getElementById('statChars').textContent='Chars: '+chars;
+  document.getElementById('statKeywords').textContent='Keywords: '+kwCount;
+  document.getElementById('statTables').textContent='Tables: ~'+(tables?tables.length:0);
+  document.getElementById('inputInfo').textContent=document.getElementById('input').value.length+' chars';
+  document.getElementById('outputInfo').textContent=lines+' lines';
+}
+
+function copyOutput(){
+  const out=document.getElementById('output');
+  const text=out.innerText||out.textContent;
+  navigator.clipboard.writeText(text).then(()=>{
+    const btn=event.target;btn.textContent='✅ Copied!';setTimeout(()=>btn.textContent='📋 Copy',1500);
+  });
+}
+
+function downloadSQL(){
+  const text=document.getElementById('output').innerText||document.getElementById('output').textContent;
+  const blob=new Blob([text],{type:'text/sql'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='query.sql';a.click();
+}
+
+function shareURL(){
+  const sql=document.getElementById('input').value;
+  const compressed=btoa(encodeURIComponent(sql));
+  const url=location.origin+location.pathname+'#sql='+compressed;
+  navigator.clipboard.writeText(url).then(()=>{
+    const btn=event.target;btn.textContent='✅ Copied!';setTimeout(()=>btn.textContent='🔗 Share',1500);
+  });
+}
+
+function loadFromHash(){
+  if(location.hash.startsWith('#sql=')){
+    try{const sql=decodeURIComponent(atob(location.hash.slice(5)));document.getElementById('input').value=sql;formatSQL()}catch(e){}
+  }
+}
+
+const SAMPLES={
+simple:`SELECT id, name, email, created_at FROM users WHERE status = 'active' AND created_at > '2024-01-01' ORDER BY created_at DESC LIMIT 50`,
+join:`SELECT u.name, u.email, d.name AS department, COUNT(o.id) AS order_count, SUM(o.total) AS total_spent FROM users u LEFT JOIN departments d ON u.dept_id = d.id LEFT JOIN orders o ON u.id = o.user_id LEFT JOIN payments p ON o.payment_id = p.id WHERE u.created_at > '2024-01-01' AND u.status = 'active' AND p.status = 'completed' GROUP BY u.name, u.email, d.name HAVING COUNT(o.id) > 5 ORDER BY total_spent DESC LIMIT 50`,
+sub:`SELECT u.name, u.email, (SELECT COUNT(*) FROM orders WHERE user_id = u.id AND status = 'completed') AS completed_orders, (SELECT AVG(total) FROM orders WHERE user_id = u.id) AS avg_order_value FROM users u WHERE u.id IN (SELECT DISTINCT user_id FROM orders WHERE total > 100 AND created_at > '2024-01-01') AND u.status NOT IN ('suspended', 'deleted') ORDER BY completed_orders DESC`,
+cte:`WITH active_users AS (SELECT u.id, u.name, u.email, COUNT(o.id) AS order_count FROM users u JOIN orders o ON u.id = o.user_id WHERE u.status = 'active' AND o.created_at >= '2024-01-01' GROUP BY u.id, u.name, u.email), top_spenders AS (SELECT au.id, au.name, au.email, au.order_count, SUM(p.amount) AS total_spent FROM active_users au JOIN payments p ON au.id = p.user_id WHERE p.status = 'completed' GROUP BY au.id, au.name, au.email, au.order_count HAVING SUM(p.amount) > 500) SELECT name, email, order_count, total_spent, total_spent / order_count AS avg_order_value FROM top_spenders ORDER BY total_spent DESC`,
+window:`SELECT name, department, salary, ROW_NUMBER() OVER (PARTITION BY department ORDER BY salary DESC) AS dept_rank, RANK() OVER (ORDER BY salary DESC) AS overall_rank, salary - LAG(salary) OVER (ORDER BY hire_date) AS salary_change, AVG(salary) OVER (PARTITION BY department) AS dept_avg_salary, FIRST_VALUE(name) OVER (PARTITION BY department ORDER BY salary DESC) AS highest_paid_in_dept FROM employees WHERE status = 'active' AND hire_date >= '2020-01-01' ORDER BY department, dept_rank`
+};
+
+function loadSample(name){document.getElementById('input').value=SAMPLES[name]||'';formatSQL()}
+
+document.getElementById('input').addEventListener('input',function(){
+  document.getElementById('inputInfo').textContent=this.value.length+' chars';
+});
+
+loadFromHash();
+</script>
+</body>
+</html>
